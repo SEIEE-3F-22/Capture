@@ -30,7 +30,9 @@ void Capture::run() {
 
     cv::Mat corrected;
     while (true) {
+        flag = false;
         cap >> frame;
+        flag = true;
         if (!frame.empty()) {
             remap(frame, corrected, mapx, mapy, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
             cv::cvtColor(corrected, gray, cv::COLOR_BGR2GRAY);
@@ -38,8 +40,12 @@ void Capture::run() {
     }
 }
 
-Capture::~Capture() {
-    cap.release();
+py::array_t<unsigned char> Capture::get() {
+    if(!flag) {
+        return Mat2ndarray(cv::Mat(0, 0, 1));
+    }
+    flag = false;
+    return Mat2ndarray(gray);
 }
 
 py::array_t<unsigned char> Capture::Mat2ndarray(cv::Mat src) {
@@ -47,17 +53,22 @@ py::array_t<unsigned char> Capture::Mat2ndarray(cv::Mat src) {
     return dst;
 }
 
-cv::Mat Capture::read() {
-    return gray;
+Capture::~Capture() {
+    cap.release();
 }
 
-py::array_t<unsigned char> Capture::get() {
-    return Mat2ndarray(read());
+
+Capture capture(0);
+
+void captureRun() {
+    capture.run();
+}
+
+py::array_t<unsigned char> captureGet() {
+    return capture.get();
 }
 
 PYBIND11_MODULE(Capture, m) {
-    py::class_<Capture>(m, "Capture")
-            .def(py::init<int>())
-            .def("run", &Capture::run)
-            .def("get", &Capture::get);
+    m.def("run", &captureRun, py::call_guard<py::gil_scoped_release>());
+    m.def("get", &captureGet);
 }

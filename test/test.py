@@ -1,20 +1,24 @@
 import cv2
 import time
-from Capture import *
-from multiprocessing import Process
+import Capture
+from threading import Thread
 
-def run(capture):
-    capture.run()
+
+def run():
+    Capture.run()
+
 
 if __name__ == '__main__':
-    capture = Capture(0)
-    p = Process(target=run, args=(capture,))
+    p = Thread(target=run)
     p.daemon = True
     p.start()
-    time.sleep(1)
 
     while True:
-        frame = capture.get()
+        frame = Capture.get()
+        if frame.shape[0] == 0:
+            time.sleep(0.005)
+            continue
+
         cv2.imshow('frame', frame)
         key = cv2.waitKey(1)
         if key == ord('q'):
