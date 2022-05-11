@@ -7,10 +7,9 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/test)
 message(Library will be generated under ${LIBRARY_OUTPUT_PATH}/test)
 
 find_package(OpenCV REQUIRED)
-
 include_directories(${OpenCV_INCLUDE_DIRS})
 
 add_subdirectory(pybind11)
 
 pybind11_add_module(Capture Capture.cpp)
-target_link_libraries(Capture PRIVATE ${OpenCV_LIBS})
+target_link_libraries(Capture PUBLIC ${OpenCV_LIBS})

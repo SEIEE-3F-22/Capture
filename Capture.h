@@ -10,6 +10,9 @@
 
 namespace py = pybind11;
 
+cv::Mat frame;
+cv::Mat gray;
+
 class Capture {
 public:
     explicit Capture(int camera);
@@ -18,14 +21,17 @@ public:
 
     void run();
 
-    cv::Mat frame;
-    cv::Mat gray;
+    py::array_t<unsigned char> get();
+
 private:
     int camera;
     cv::VideoCapture cap;
     cv::Mat mapx, mapy;
     cv::Matx33d intrinsics;
     cv::Vec4d distortion_coeff;
+
+    cv::Mat read();
+    static py::array_t<unsigned char> Mat2ndarray(cv::Mat src);
 };
 
 
