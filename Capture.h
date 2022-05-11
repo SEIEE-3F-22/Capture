@@ -21,16 +21,12 @@ public:
     py::array_t<unsigned char> get();
 
 private:
-    int camera;
     cv::VideoCapture cap;
     cv::Mat mapx, mapy;
-    cv::Matx33d intrinsics;
-    cv::Vec4d distortion_coeff;
 
-    bool flag;
+    bool newFrameReceived = false;
 
-    cv::Mat frame;
-    cv::Mat gray;
+    cv::Mat corrected;
 
     static py::array_t<unsigned char> Mat2ndarray(cv::Mat src);
 };
