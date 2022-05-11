@@ -16,17 +16,23 @@ public:
 
     ~Capture();
 
-    void run();
+    void Acquire();
 
-    py::array_t<unsigned char> get();
+    void Undistort();
+
+    void Openvino();
+
+    py::array_t<unsigned char> Get();
 
 private:
     cv::VideoCapture cap;
-    cv::Mat mapx, mapy;
-
     bool newFrameReceived = false;
+    bool newFrameFinished = false;
+    cv::Mat mapx, mapy;
+    cv::Mat frame, corrected;
 
-    cv::Mat corrected;
+    std::mutex frame_mutex, corrected_mutex;
+    std::condition_variable cv_frameReceived;
 
     static py::array_t<unsigned char> Mat2ndarray(cv::Mat src);
 };

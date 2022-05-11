@@ -1,13 +1,14 @@
 #include "Capture.h"
 
-Capture::Capture(int camera){
+#include <thread>
+#include <mutex>
 
+Capture::Capture(int camera) {
     cap.open(camera);
     if (!cap.isOpened()) {
         throw std::runtime_error("Couldn't open video capture device");
     }
     std::cout << "-------Video capture device opened-------" << std::endl;
-
 
 
     std::cout << "-------Undistort Initialization started-------" << std::endl;
@@ -33,24 +34,65 @@ Capture::Capture(int camera){
     std::cout << "-------Undistort Initialization finished-------" << std::endl;
 }
 
-void Capture::run() {
-    cv::Mat frame, gray;
-    while (true) {
-        cap >> frame;
+void Capture::Acquire() {
+
+    /** The mutex is available */
+    if (true == frame_mutex.try_lock()) {
+        cap >> frame;   //不判断图像有效性
+        frame_mutex.unlock();
         if (!frame.empty()) {
             newFrameReceived = true;
-            cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
-            remap(gray, corrected, mapx, mapy, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
+            cv_frameReceived.notify_all();
+        }
+    }
+
+        /** The mutex is unavailable */
+    else {
+        cv::Mat tmpMat;
+        cap >> tmpMat;
+        if (!tmpMat.empty()) {
+            std::unique_lock <std::mutex> lock(frame_mutex);
+            frame = tmpMat.clone();
+            newFrameReceived = true;
+            cv_frameReceived.notify_all();
+            // The unique_lock decomposed here, release the frame_mutex
         }
     }
 }
 
-py::array_t<unsigned char> Capture::get() {
-    if(!newFrameReceived) {
-        return Mat2ndarray(cv::Mat(0, 0, cv::CV_8UC1));
-    }
+void Capture::Undistort() {
+    cv::Mat gray;
+
+    do {
+        std::unique_lock <std::mutex> lock(frame_mutex);
+        cv_frameReceived.wait(lock, [=]() { return newFrameReceived; });
+        cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
+        // The unique_lock decomposed here, release the frame_mutex
+    } while (false);
     newFrameReceived = false;
+
+    do {
+        std::unique_lock <std::mutex> lock(corrected_mutex);
+        remap(gray, corrected, mapx, mapy, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
+        // The unique_lock decomposed here, release the corrected_mutex
+    } while (false);
+    newFrameFinished = true;
+}
+
+void Capture::Openvino() {
+    do {
+        std::unique_lock <std::mutex> lock(frame_mutex);
+    } while (false);
+}
+
+py::array_t<unsigned char> Capture::Get() {
+    if (!newFrameFinished) {
+        return Mat2ndarray(cv::Mat(0, 0, CV_8UC1));
+    }
+    std::unique_lock <std::mutex> lock(corrected_mutex);
+    newFrameFinished = false;
     return Mat2ndarray(corrected);
+    // The unique_lock decomposed here, release the corrected_mutex
 }
 
 py::array_t<unsigned char> Capture::Mat2ndarray(cv::Mat src) {
@@ -65,11 +107,18 @@ Capture::~Capture() {
 Capture capture(0);
 
 void captureRun() {
-    capture.run();
+    std::ios::sync_with_stdio(false);
+
+    std::thread thread_Acquire(capture.Acquire);
+    std::thread thread_Undistort(capture.Undistort);
+    thread_Acquire.detach();
+    thread_Undistort.detach();
+
+    //std::this_thread::sleep_for(1000);
 }
 
 py::array_t<unsigned char> captureGet() {
-    return capture.get();
+    return capture.Get();
 }
 
 PYBIND11_MODULE(Capture, m) {
