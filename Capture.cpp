@@ -3,13 +3,12 @@
 #include <thread>
 #include <mutex>
 
-Capture::Capture(int camera) {
+Capture::Capture(int camera, std::string input_model_path, std::string device_name) {
     cap.open(camera);
     if (!cap.isOpened()) {
         throw std::runtime_error("Couldn't open video capture device");
     }
     std::cout << "-------Video capture device opened-------" << std::endl;
-
 
     std::cout << "-------Undistort Initialization started-------" << std::endl;
 
@@ -32,6 +31,10 @@ Capture::Capture(int camera) {
     cv::fisheye::initUndistortRectifyMap(intrinsics, distortion_coeff, cv::Matx33d::eye(), intrinsics,
                                          cv::Size(640, 480), CV_16SC2, mapx, mapy);
     std::cout << "-------Undistort Initialization finished-------" << std::endl;
+
+    std::cout << "-------Openvino Initialization started-------" << std::endl;
+    OpenvinoInit(input_model_path, device_name);
+    std::cout << "-------Openvino Initialization finished-------" << std::endl;
 }
 
 void Capture::Acquire() {
@@ -82,13 +85,7 @@ void Capture::Undistort() {
     }
 }
 
-void Capture::Openvino() {
-    do {
-        std::unique_lock<std::mutex> lock(frame_mutex);
-    } while (false);
-}
-
-py::array_t<unsigned char> Capture::Get() {
+py::array_t<unsigned char> Capture::getCorrected() {
     if (!newFrameFinished) {
         return Mat2ndarray(cv::Mat(0, 0, CV_8UC1));
     }
@@ -103,11 +100,20 @@ py::array_t<unsigned char> Capture::Mat2ndarray(const cv::Mat &src) {
     return dst;
 }
 
+cv::Mat Capture::getFrame(){
+    if (!newFrameReceived) {
+        return cv::Mat(0, 0, CV_8UC3);
+    }
+    std::unique_lock<std::mutex> lock(frame_mutex);
+    newFrameReceived = false;
+    return frame;
+}
+
 Capture::~Capture() {
     cap.release();
 }
 
-Capture capture(0);
+Capture capture(0, input_model_path, device_name);
 
 void captureAcquire() {
     capture.Acquire();
@@ -117,19 +123,24 @@ void captureUndistort() {
     capture.Undistort();
 }
 
+void captureOpenvinoInference() {
+    capture.OpenvinoInference();
+}
+
 void captureRun() {
     std::ios::sync_with_stdio(false);
 
     std::thread thread_Acquire(captureAcquire);
     std::thread thread_Undistort(captureUndistort);
+    std::thread thread_Openvino(captureOpenvinoInference);
+
     thread_Acquire.detach();
     thread_Undistort.detach();
-
-    //std::this_thread::sleep_for(1000);
+    thread_Openvino.detach();
 }
 
 py::array_t<unsigned char> captureGet() {
-    return capture.Get();
+    return capture.getCorrected();
 }
 
 PYBIND11_MODULE(Capture, m) {
