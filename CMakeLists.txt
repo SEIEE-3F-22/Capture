@@ -11,5 +11,5 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 
 add_subdirectory(pybind11)
 
-pybind11_add_module(Capture Capture.cpp)
+pybind11_add_module(Capture Capture.cpp Openvino.cpp)
 target_link_libraries(Capture PUBLIC ${OpenCV_LIBS})
