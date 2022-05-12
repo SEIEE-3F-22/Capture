@@ -7,6 +7,7 @@
 #include <opencv2/opencv.hpp>
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include <condition_variable>
 
 namespace py = pybind11;
 
@@ -34,7 +35,7 @@ private:
     std::mutex frame_mutex, corrected_mutex;
     std::condition_variable cv_frameReceived;
 
-    static py::array_t<unsigned char> Mat2ndarray(cv::Mat src);
+    static py::array_t<unsigned char> Mat2ndarray(const cv::Mat& src);
 };
 
 

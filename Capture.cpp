@@ -35,53 +35,56 @@ Capture::Capture(int camera) {
 }
 
 void Capture::Acquire() {
-
-    /** The mutex is available */
-    if (true == frame_mutex.try_lock()) {
-        cap >> frame;   //不判断图像有效性
-        frame_mutex.unlock();
-        if (!frame.empty()) {
-            newFrameReceived = true;
-            cv_frameReceived.notify_all();
+    while (true) {
+        /** The mutex is available */
+        if (frame_mutex.try_lock()) {
+            cap >> frame;   //不判断图像有效性
+            frame_mutex.unlock();
+            if (!frame.empty()) {
+                newFrameReceived = true;
+                cv_frameReceived.notify_all();
+            }
         }
-    }
 
-        /** The mutex is unavailable */
-    else {
-        cv::Mat tmpMat;
-        cap >> tmpMat;
-        if (!tmpMat.empty()) {
-            std::unique_lock <std::mutex> lock(frame_mutex);
-            frame = tmpMat.clone();
-            newFrameReceived = true;
-            cv_frameReceived.notify_all();
-            // The unique_lock decomposed here, release the frame_mutex
+            /** The mutex is unavailable */
+        else {
+            cv::Mat tmpMat;
+            cap >> tmpMat;
+            if (!tmpMat.empty()) {
+                std::unique_lock<std::mutex> lock(frame_mutex);
+                frame = tmpMat.clone();
+                newFrameReceived = true;
+                cv_frameReceived.notify_all();
+                // The unique_lock decomposed here, release the frame_mutex
+            }
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 }
 
 void Capture::Undistort() {
     cv::Mat gray;
+    while (true) {
+        do {
+            std::unique_lock<std::mutex> lock(frame_mutex);
+            cv_frameReceived.wait(lock, [=]() { return newFrameReceived; });
+            cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
+            // The unique_lock decomposed here, release the frame_mutex
+        } while (false);
+        newFrameReceived = false;
 
-    do {
-        std::unique_lock <std::mutex> lock(frame_mutex);
-        cv_frameReceived.wait(lock, [=]() { return newFrameReceived; });
-        cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
-        // The unique_lock decomposed here, release the frame_mutex
-    } while (false);
-    newFrameReceived = false;
-
-    do {
-        std::unique_lock <std::mutex> lock(corrected_mutex);
-        remap(gray, corrected, mapx, mapy, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
-        // The unique_lock decomposed here, release the corrected_mutex
-    } while (false);
-    newFrameFinished = true;
+        do {
+            std::unique_lock<std::mutex> lock(corrected_mutex);
+            remap(gray, corrected, mapx, mapy, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
+            // The unique_lock decomposed here, release the corrected_mutex
+        } while (false);
+        newFrameFinished = true;
+    }
 }
 
 void Capture::Openvino() {
     do {
-        std::unique_lock <std::mutex> lock(frame_mutex);
+        std::unique_lock<std::mutex> lock(frame_mutex);
     } while (false);
 }
 
@@ -89,13 +92,13 @@ py::array_t<unsigned char> Capture::Get() {
     if (!newFrameFinished) {
         return Mat2ndarray(cv::Mat(0, 0, CV_8UC1));
     }
-    std::unique_lock <std::mutex> lock(corrected_mutex);
+    std::unique_lock<std::mutex> lock(corrected_mutex);
     newFrameFinished = false;
     return Mat2ndarray(corrected);
     // The unique_lock decomposed here, release the corrected_mutex
 }
 
-py::array_t<unsigned char> Capture::Mat2ndarray(cv::Mat src) {
+py::array_t<unsigned char> Capture::Mat2ndarray(const cv::Mat &src) {
     py::array_t<unsigned char> dst = py::array_t<unsigned char>({src.rows, src.cols}, src.data);
     return dst;
 }
@@ -106,11 +109,19 @@ Capture::~Capture() {
 
 Capture capture(0);
 
+void captureAcquire() {
+    capture.Acquire();
+}
+
+void captureUndistort() {
+    capture.Undistort();
+}
+
 void captureRun() {
     std::ios::sync_with_stdio(false);
 
-    std::thread thread_Acquire(capture.Acquire);
-    std::thread thread_Undistort(capture.Undistort);
+    std::thread thread_Acquire(captureAcquire);
+    std::thread thread_Undistort(captureUndistort);
     thread_Acquire.detach();
     thread_Undistort.detach();
 
