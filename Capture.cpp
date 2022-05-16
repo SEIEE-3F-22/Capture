@@ -1,7 +1,9 @@
 #include "Capture.h"
+#include "Openvino.cpp"
 
 #include <thread>
 #include <mutex>
+#include <utility>
 
 Capture::Capture(int camera, std::string input_model_path, std::string device_name) {
     cap.open(camera);
@@ -33,7 +35,7 @@ Capture::Capture(int camera, std::string input_model_path, std::string device_na
     std::cout << "-------Undistort Initialization finished-------" << std::endl;
 
     std::cout << "-------Openvino Initialization started-------" << std::endl;
-    OpenvinoInit(input_model_path, device_name);
+    OpenvinoInit(std::move(input_model_path), std::move(device_name));
     std::cout << "-------Openvino Initialization finished-------" << std::endl;
 }
 
@@ -113,7 +115,7 @@ Capture::~Capture() {
     cap.release();
 }
 
-Capture capture(0, input_model_path, device_name);
+Capture capture(0, "/home/pi/Code/Capture/test/4_yolox_nano.xml", "MYRIAD");
 
 void captureAcquire() {
     capture.Acquire();
@@ -123,7 +125,7 @@ void captureUndistort() {
     capture.Undistort();
 }
 
-void captureOpenvinoInference() {
+void captureInference() {
     capture.OpenvinoInference();
 }
 
@@ -132,7 +134,7 @@ void captureRun() {
 
     std::thread thread_Acquire(captureAcquire);
     std::thread thread_Undistort(captureUndistort);
-    std::thread thread_Openvino(captureOpenvinoInference);
+    std::thread thread_Openvino(captureInference);
 
     thread_Acquire.detach();
     thread_Undistort.detach();
