@@ -9,21 +9,9 @@
 #include <pybind11/numpy.h>
 #include <condition_variable>
 
-#include <iterator>
-#include <memory>
-#include <string>
-#include <vector>
-#include <inference_engine.hpp>
+#include "Openvino.h"
 
-using namespace InferenceEngine;
 namespace py = pybind11;
-
-struct Object
-{
-    cv::Rect_<float> rect;
-    int label;
-    float prob;
-};
 
 class Capture {
 public:
@@ -41,7 +29,7 @@ public:
 
     void OpenvinoInference();
 
-    Object getInferenceResult();
+    std::vector<Object> getInferenceResult();
 
 private:
     cv::VideoCapture cap;
@@ -54,7 +42,10 @@ private:
     std::condition_variable cv_frameReceived;
 
     CNNNetwork network;
-    Object objects;
+    std::vector<Object> objects;
+    InferRequest infer_request;
+    std::string input_name;
+    std::string output_name;
 
     void OpenvinoInit(std::string input_model_path, std::string device_name);
 

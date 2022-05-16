@@ -1,30 +1,9 @@
 #include "Capture.h"
-#include <iterator>
-#include <memory>
-#include <string>
-#include <vector>
-#include <opencv2/opencv.hpp>
-#include <iostream>
-#include <inference_engine.hpp>
+#include "Openvino.h"
 
-using namespace InferenceEngine;
 
-/**
- * @brief Define names based depends on Unicode path support
- */
-#define tcout                  std::cout
-#define file_name_t            std::string
-#define imread_t               cv::imread
-#define NMS_THRESH 0.45
-#define BBOX_CONF_THRESH 0.3
-#define LOGD(fmt, ...) printf("[%s][%s][%d]: " fmt "\n", __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
-
-static const int INPUT_W = 416; //416
-static const int INPUT_H = 416; //416
-static const int NUM_CLASSES = 5; // COCO has 80 classes. Modify this value on your own dataset.
-
-cv::Mat static_resize(cv::Mat& img) {
-    float r = std::min(INPUT_W / (img.cols*1.0), INPUT_H / (img.rows*1.0));
+cv::Mat static_resize(cv::Mat &img) {
+    float r = std::min(INPUT_W / (img.cols * 1.0), INPUT_H / (img.rows * 1.0));
     // r = std::min(r, 1.0f);
     int unpad_w = r * img.cols;
     int unpad_h = r * img.rows;
@@ -36,13 +15,12 @@ cv::Mat static_resize(cv::Mat& img) {
     return out;
 }
 
-void blobFromImage(cv::Mat& img, Blob::Ptr& blob){
+void blobFromImage(cv::Mat &img, Blob::Ptr &blob) {
     int channels = 3;
     int img_h = img.rows;
     int img_w = img.cols;
     InferenceEngine::MemoryBlob::Ptr mblob = InferenceEngine::as<InferenceEngine::MemoryBlob>(blob);
-    if (!mblob)
-    {
+    if (!mblob) {
         THROW_IE_EXCEPTION << "We expect blob to be inherited from MemoryBlob in matU8ToBlob, "
                            << "but by fact we were not able to cast inputBlob to MemoryBlob";
     }
@@ -51,58 +29,36 @@ void blobFromImage(cv::Mat& img, Blob::Ptr& blob){
 
     float *blob_data = mblobHolder.as<float *>();
 
-    for (size_t c = 0; c < channels; c++)
-    {
-        for (size_t  h = 0; h < img_h; h++)
-        {
-            for (size_t w = 0; w < img_w; w++)
-            {
+    for (size_t c = 0; c < channels; c++) {
+        for (size_t h = 0; h < img_h; h++) {
+            for (size_t w = 0; w < img_w; w++) {
                 blob_data[c * img_w * img_h + h * img_w + w] =
-                        (float)img.at<cv::Vec3b>(h, w)[c];
+                        (float) img.at<cv::Vec3b>(h, w)[c];
             }
         }
     }
 }
 
-
-struct Object
-{
-    cv::Rect_<float> rect;
-    int label;
-    float prob;
-};
-
-struct GridAndStride
-{
-    int grid0;
-    int grid1;
-    int stride;
-};
-
-static void generate_grids_and_stride(const int target_w, const int target_h, std::vector<int>& strides, std::vector<GridAndStride>& grid_strides)
-{
-    for (auto stride : strides)
-    {
+static void generate_grids_and_stride(const int target_w, const int target_h, std::vector<int> &strides,
+                                      std::vector<GridAndStride> &grid_strides) {
+    for (auto stride: strides) {
         int num_grid_w = target_w / stride;
         int num_grid_h = target_h / stride;
-        for (int g1 = 0; g1 < num_grid_h; g1++)
-        {
-            for (int g0 = 0; g0 < num_grid_w; g0++)
-            {
-                grid_strides.push_back((GridAndStride){g0, g1, stride});
+        for (int g1 = 0; g1 < num_grid_h; g1++) {
+            for (int g0 = 0; g0 < num_grid_w; g0++) {
+                grid_strides.push_back((GridAndStride) {g0, g1, stride});
             }
         }
     }
 }
 
-
-static void generate_yolox_proposals(std::vector<GridAndStride> grid_strides, const float* feat_ptr, float prob_threshold, std::vector<Object>& objects)
-{
+static void
+generate_yolox_proposals(std::vector<GridAndStride> grid_strides, const float *feat_ptr, float prob_threshold,
+                         std::vector<Object> &objects) {
 
     const int num_anchors = grid_strides.size();
 
-    for (int anchor_idx = 0; anchor_idx < num_anchors; anchor_idx++)
-    {
+    for (int anchor_idx = 0; anchor_idx < num_anchors; anchor_idx++) {
         const int grid0 = grid_strides[anchor_idx].grid0;
         const int grid1 = grid_strides[anchor_idx].grid1;
         const int stride = grid_strides[anchor_idx].stride;
@@ -120,12 +76,10 @@ static void generate_yolox_proposals(std::vector<GridAndStride> grid_strides, co
         float y0 = y_center - h * 0.5f;
 
         float box_objectness = feat_ptr[basic_pos + 4];
-        for (int class_idx = 0; class_idx < NUM_CLASSES; class_idx++)
-        {
+        for (int class_idx = 0; class_idx < NUM_CLASSES; class_idx++) {
             float box_cls_score = feat_ptr[basic_pos + 5 + class_idx];
             float box_prob = box_objectness * box_cls_score;
-            if (box_prob > prob_threshold)
-            {
+            if (box_prob > prob_threshold) {
                 Object obj;
                 obj.rect.x = x0;
                 obj.rect.y = y0;
@@ -142,28 +96,24 @@ static void generate_yolox_proposals(std::vector<GridAndStride> grid_strides, co
     } // point anchor loop
 }
 
-static inline float intersection_area(const Object& a, const Object& b)
-{
+static inline float intersection_area(const Object &a, const Object &b) {
     cv::Rect_<float> inter = a.rect & b.rect;
     return inter.area();
 }
 
-static void qsort_descent_inplace(std::vector<Object>& faceobjects, int left, int right)
-{
+static void qsort_descent_inplace(std::vector<Object> &faceobjects, int left, int right) {
     int i = left;
     int j = right;
     float p = faceobjects[(left + right) / 2].prob;
 
-    while (i <= j)
-    {
+    while (i <= j) {
         while (faceobjects[i].prob > p)
             i++;
 
         while (faceobjects[j].prob < p)
             j--;
 
-        if (i <= j)
-        {
+        if (i <= j) {
             // swap
             std::swap(faceobjects[i], faceobjects[j]);
 
@@ -185,35 +135,29 @@ static void qsort_descent_inplace(std::vector<Object>& faceobjects, int left, in
     }
 }
 
-
-static void qsort_descent_inplace(std::vector<Object>& objects)
-{
+static void qsort_descent_inplace(std::vector<Object> &objects) {
     if (objects.empty())
         return;
 
     qsort_descent_inplace(objects, 0, objects.size() - 1);
 }
 
-static void nms_sorted_bboxes(const std::vector<Object>& faceobjects, std::vector<int>& picked, float nms_threshold)
-{
+static void nms_sorted_bboxes(const std::vector<Object> &faceobjects, std::vector<int> &picked, float nms_threshold) {
     picked.clear();
 
     const int n = faceobjects.size();
 
     std::vector<float> areas(n);
-    for (int i = 0; i < n; i++)
-    {
+    for (int i = 0; i < n; i++) {
         areas[i] = faceobjects[i].rect.area();
     }
 
-    for (int i = 0; i < n; i++)
-    {
-        const Object& a = faceobjects[i];
+    for (int i = 0; i < n; i++) {
+        const Object &a = faceobjects[i];
 
         int keep = 1;
-        for (int j = 0; j < (int)picked.size(); j++)
-        {
-            const Object& b = faceobjects[picked[j]];
+        for (int j = 0; j < (int) picked.size(); j++) {
+            const Object &b = faceobjects[picked[j]];
 
             // intersection over union
             float inter_area = intersection_area(a, b);
@@ -228,14 +172,14 @@ static void nms_sorted_bboxes(const std::vector<Object>& faceobjects, std::vecto
     }
 }
 
-
-static void decode_outputs(const float* prob, std::vector<Object>& objects, float scale, const int img_w, const int img_h) {
+static void
+decode_outputs(const float *prob, std::vector<Object> &objects, float scale, const int img_w, const int img_h) {
     std::vector<Object> proposals;
     std::vector<int> strides = {8, 16, 32};
     std::vector<GridAndStride> grid_strides;
 
     generate_grids_and_stride(INPUT_W, INPUT_H, strides, grid_strides);
-    generate_yolox_proposals(grid_strides, prob,  BBOX_CONF_THRESH, proposals);
+    generate_yolox_proposals(grid_strides, prob, BBOX_CONF_THRESH, proposals);
     qsort_descent_inplace(proposals);
 
     std::vector<int> picked;
@@ -243,8 +187,7 @@ static void decode_outputs(const float* prob, std::vector<Object>& objects, floa
     int count = picked.size();
     objects.resize(count);
 
-    for (int i = 0; i < count; i++)
-    {
+    for (int i = 0; i < count; i++) {
         objects[i] = proposals[picked[i]];
 
         // adjust offset to original unpadded
@@ -254,10 +197,10 @@ static void decode_outputs(const float* prob, std::vector<Object>& objects, floa
         float y1 = (objects[i].rect.y + objects[i].rect.height) / scale;
 
         // clip
-        x0 = std::max(std::min(x0, (float)(img_w - 1)), 0.f);
-        y0 = std::max(std::min(y0, (float)(img_h - 1)), 0.f);
-        x1 = std::max(std::min(x1, (float)(img_w - 1)), 0.f);
-        y1 = std::max(std::min(y1, (float)(img_h - 1)), 0.f);
+        x0 = std::max(std::min(x0, (float) (img_w - 1)), 0.f);
+        y0 = std::max(std::min(y0, (float) (img_h - 1)), 0.f);
+        x1 = std::max(std::min(x1, (float) (img_w - 1)), 0.f);
+        y1 = std::max(std::min(y1, (float) (img_h - 1)), 0.f);
 
         objects[i].rect.x = x0;
         objects[i].rect.y = y0;
@@ -266,26 +209,15 @@ static void decode_outputs(const float* prob, std::vector<Object>& objects, floa
     }
 }
 
-const float color_list[5][3] = //80
-        {
-                {0.000, 0.447, 0.741},
-                {0.850, 0.325, 0.098},
-                {0.929, 0.694, 0.125},
-                {0.494, 0.184, 0.556},
-                {0.466, 0.674, 0.188},
-        };
-
-static void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects)
-{
-    static const char* class_names[] = {
+static void draw_objects(const cv::Mat &bgr, const std::vector<Object> &objects) {
+    static const char *class_names[] = {
             "color", "left", "limit", "right", "unlimit"
     };
 
     cv::Mat image = bgr.clone();
 
-    for (size_t i = 0; i < objects.size(); i++)
-    {
-        const Object& obj = objects[i];
+    for (size_t i = 0; i < objects.size(); i++) {
+        const Object &obj = objects[i];
 
         fprintf(stderr, "%d = %.5f at %.2f %.2f %.2f x %.2f\n", obj.label, obj.prob,
                 obj.rect.x, obj.rect.y, obj.rect.width, obj.rect.height);
@@ -293,9 +225,9 @@ static void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects)
         cv::Scalar color = cv::Scalar(color_list[obj.label][0], color_list[obj.label][1], color_list[obj.label][2]);
         float c_mean = cv::mean(color)[0];
         cv::Scalar txt_color;
-        if (c_mean > 0.5){
+        if (c_mean > 0.5) {
             txt_color = cv::Scalar(0, 0, 0);
-        }else{
+        } else {
             txt_color = cv::Scalar(255, 255, 255);
         }
 
@@ -324,24 +256,26 @@ static void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects)
                     cv::FONT_HERSHEY_SIMPLEX, 0.4, txt_color, 1);
     }
 
-    cv::imwrite("_demo.jpg" , image);
+    cv::imwrite("_demo.jpg", image);
     fprintf(stderr, "save vis file\n");
     /* cv::imshow("image", image); */
     /* cv::waitKey(0); */
 }
 
-Object Capture::getInferenceResult(){
+std::vector<Object> Capture::getInferenceResult() {
     return objects;
 }
 
-void Capture::OpenvinoInit(std::string input_model, std::string device_name){
+void Capture::OpenvinoInit(std::string input_model, std::string device_name) {
     // --------------------------- Step 1. Initialize inference engine core
     // -------------------------------------
     Core ie;
 
     // Step 2. Read a model in OpenVINO Intermediate Representation (.xml and
     // .bin files) or ONNX (.onnx file) format
+    std::cout << "check point 1" << std::endl;
     network = ie.ReadNetwork(input_model);
+    std::cout << "check point 2" << std::endl;
     if (network.getOutputsInfo().size() != 1)
         throw std::logic_error("Sample supports topologies with 1 output only");
     if (network.getInputsInfo().size() != 1)
@@ -352,16 +286,15 @@ void Capture::OpenvinoInit(std::string input_model, std::string device_name){
     // --------------------------- Prepare input blobs
     // -----------------------------------------------------
     InputInfo::Ptr input_info = network.getInputsInfo().begin()->second;
-    std::string input_name = network.getInputsInfo().begin()->first;
+    input_name = network.getInputsInfo().begin()->first;
 
     // --------------------------- Prepare output blobs
     // ----------------------------------------------------
     if (network.getOutputsInfo().empty()) {
-        std::cerr << "Network outputs info is empty" << std::endl;
-        return EXIT_FAILURE;
+        throw std::runtime_error("Network outputs info is empty");
     }
     DataPtr output_info = network.getOutputsInfo().begin()->second;
-    std::string output_name = network.getOutputsInfo().begin()->first;
+    output_name = network.getOutputsInfo().begin()->first;
 
     output_info->setPrecision(Precision::FP32); //FP16
 
@@ -371,10 +304,10 @@ void Capture::OpenvinoInit(std::string input_model, std::string device_name){
 
     // --------------------------- Step 5. Create an infer request
     // -------------------------------------------------
-    InferRequest infer_request = executable_network.CreateInferRequest();
+    infer_request = executable_network.CreateInferRequest();
 }
 
-void Capture::OpenvinoInference(){
+void Capture::OpenvinoInference() {
     cv::Mat image;
     while (true) {
         image = getFrame();
@@ -398,12 +331,11 @@ void Capture::OpenvinoInference(){
         // locked memory holder should be alive all time while access to its buffer
         // happens
         auto moutputHolder = moutput->rmap();
-        const float* net_pred = moutputHolder.as<const PrecisionTrait<Precision::FP32>::value_type*>();
+        const float *net_pred = moutputHolder.as<const PrecisionTrait<Precision::FP32>::value_type *>();
 
         int img_w = image.cols;
         int img_h = image.rows;
-        float scale = std::min(INPUT_W / (image.cols*1.0), INPUT_H / (image.rows*1.0));
-        std::vector<Object> objects;
+        float scale = std::min(INPUT_W / (image.cols * 1.0), INPUT_H / (image.rows * 1.0));
 
         decode_outputs(net_pred, objects, scale, img_w, img_h);
     }
