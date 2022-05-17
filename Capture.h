@@ -23,13 +23,9 @@ public:
 
     void Undistort();
 
-    cv::Mat getFrame();
-
     py::array_t<unsigned char> getCorrected();
 
     void OpenvinoInference();
-
-    std::vector<Object> getInferenceResult();
 
 private:
     cv::VideoCapture cap;

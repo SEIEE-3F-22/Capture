@@ -8,7 +8,7 @@ message(Library will be generated under ${LIBRARY_OUTPUT_PATH})
 
 set(INTEL_OPENVINO_DIR "/opt/intel/openvino_2021")
 set(INTEL_CVSDK_DIR "/opt/intel/openvino_2021")
-#set(InferenceEngine_DIR "/opt/intel/openvino_2021/deployment_tools/inference_engine/share")
+set(InferenceEngine_DIR "/opt/intel/openvino_2021/deployment_tools/inference_engine/share")
 
 find_package(OpenCV REQUIRED)
 find_package(InferenceEngine REQUIRED)
