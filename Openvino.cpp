@@ -262,10 +262,6 @@ static void draw_objects(const cv::Mat &bgr, const std::vector<Object> &objects)
     /* cv::waitKey(0); */
 }
 
-std::vector<Object> Capture::getInferenceResult() {
-    return objects;
-}
-
 void Capture::OpenvinoInit(std::string input_model, std::string device_name) {
     // --------------------------- Step 1. Initialize inference engine core
     // -------------------------------------
@@ -273,9 +269,9 @@ void Capture::OpenvinoInit(std::string input_model, std::string device_name) {
 
     // Step 2. Read a model in OpenVINO Intermediate Representation (.xml and
     // .bin files) or ONNX (.onnx file) format
-    std::cout << "check point 1" << std::endl;
+
     network = ie.ReadNetwork(input_model);
-    std::cout << "check point 2" << std::endl;
+
     if (network.getOutputsInfo().size() != 1)
         throw std::logic_error("Sample supports topologies with 1 output only");
     if (network.getInputsInfo().size() != 1)
@@ -309,8 +305,16 @@ void Capture::OpenvinoInit(std::string input_model, std::string device_name) {
 
 void Capture::OpenvinoInference() {
     cv::Mat image;
+
     while (true) {
-        image = getFrame();
+        do {
+            std::unique_lock<std::mutex> lock(frame_mutex);
+            cv_frameReceived.wait(lock, [=]() { return newFrameReceived; });
+            image = frame;
+            // The unique_lock decomposed here, release the frame_mutex
+        } while (false);
+        newFrameReceived = false;
+
         // inference
         cv::Mat pr_img = static_resize(image);
         Blob::Ptr imgBlob = infer_request.GetBlob(input_name);     // just wrap Mat data by Blob::Ptr

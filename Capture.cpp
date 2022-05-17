@@ -102,20 +102,11 @@ py::array_t<unsigned char> Capture::Mat2ndarray(const cv::Mat &src) {
     return dst;
 }
 
-cv::Mat Capture::getFrame(){
-    if (!newFrameReceived) {
-        return cv::Mat(0, 0, CV_8UC3);
-    }
-    std::unique_lock<std::mutex> lock(frame_mutex);
-    newFrameReceived = false;
-    return frame;
-}
-
 Capture::~Capture() {
     cap.release();
 }
 
-Capture capture(0, "/home/pi/Code/Capture/test/4_yolox_nano.xml", "MYRIAD");
+Capture capture(1, "/home/pi/Code/Capture/test/4_yolox_nano.xml", "MYRIAD");
 
 void captureAcquire() {
     capture.Acquire();
