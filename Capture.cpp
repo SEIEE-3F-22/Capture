@@ -1,10 +1,6 @@
 #include "Capture.h"
 #include "Openvino.cpp"
 
-#include <thread>
-#include <mutex>
-#include <utility>
-
 Capture::Capture(int camera, std::string input_model_path, std::string device_name) {
     cap.open(camera);
     if (!cap.isOpened()) {
@@ -35,7 +31,7 @@ Capture::Capture(int camera, std::string input_model_path, std::string device_na
     std::cout << "-------Undistort Initialization finished-------" << std::endl;
 
     std::cout << "-------Openvino Initialization started-------" << std::endl;
-    OpenvinoInit(std::move(input_model_path), std::move(device_name));
+    initNetwork(std::move(input_model_path), std::move(device_name));
     std::cout << "-------Openvino Initialization finished-------" << std::endl;
 }
 
@@ -47,7 +43,7 @@ void Capture::Acquire() {
             frame_mutex.unlock();
             if (!frame.empty()) {
                 newFrameReceived = true;
-                cv_frameReceived.notify_all();
+                frameReceived.notify_all();
             }
         }
 
@@ -59,7 +55,7 @@ void Capture::Acquire() {
                 std::unique_lock<std::mutex> lock(frame_mutex);
                 frame = tmpMat.clone();
                 newFrameReceived = true;
-                cv_frameReceived.notify_all();
+                frameReceived.notify_all();
                 // The unique_lock decomposed here, release the frame_mutex
             }
         }
@@ -68,33 +64,38 @@ void Capture::Acquire() {
 }
 
 void Capture::Undistort() {
-    cv::Mat gray;
+    cv::Mat gray, corrected, binary, kernel;
+
     while (true) {
         do {
             std::unique_lock<std::mutex> lock(frame_mutex);
-            cv_frameReceived.wait(lock, [=]() { return newFrameReceived; });
+            frameReceived.wait(lock, [=]() { return newFrameReceived; });
             cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
             // The unique_lock decomposed here, release the frame_mutex
         } while (false);
         newFrameReceived = false;
 
         do {
-            std::unique_lock<std::mutex> lock(corrected_mutex);
+            std::unique_lock<std::mutex> lock(image_mutex);
             remap(gray, corrected, mapx, mapy, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
-            // The unique_lock decomposed here, release the corrected_mutex
+            cv::threshold(corrected, binary, 0, 255, cv::THRESH_OTSU);
+
+            kernel = getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(7, 7));
+            morphologyEx(binary, image, cv::MORPH_OPEN, kernel);
+            // The unique_lock decomposed here, release the image_mutex
         } while (false);
         newFrameFinished = true;
     }
 }
 
-py::array_t<unsigned char> Capture::getCorrected() {
+py::array_t<unsigned char> Capture::getImage() {
     if (!newFrameFinished) {
         return Mat2ndarray(cv::Mat(0, 0, CV_8UC1));
     }
-    std::unique_lock<std::mutex> lock(corrected_mutex);
+    std::unique_lock<std::mutex> lock(image_mutex);
     newFrameFinished = false;
-    return Mat2ndarray(corrected);
-    // The unique_lock decomposed here, release the corrected_mutex
+    return Mat2ndarray(image);
+    // The unique_lock decomposed here, release the image_mutex
 }
 
 py::array_t<unsigned char> Capture::Mat2ndarray(const cv::Mat &src) {
@@ -117,7 +118,7 @@ void captureUndistort() {
 }
 
 void captureInference() {
-    capture.OpenvinoInference();
+    capture.beginInference();
 }
 
 void captureRun() {
@@ -133,10 +134,27 @@ void captureRun() {
 }
 
 py::array_t<unsigned char> captureGet() {
-    return capture.getCorrected();
+    return capture.getImage();
+}
+
+std::vector<float> captureGetferenceResult() {
+    std::vector<float> result;
+    std::vector<Object> objects = capture.getInferenceResult();
+    if (!objects.empty()) {
+        for (int i = 0; i < objects.size(); ++i) {
+            result.push_back(objects[i].label);
+            result.push_back(objects[i].rect.x);
+            result.push_back(objects[i].rect.y);
+            result.push_back(objects[i].rect.width);
+            result.push_back(objects[i].rect.height);
+            result.push_back(objects[i].prob);
+        }
+    }
+    return result;
 }
 
 PYBIND11_MODULE(Capture, m) {
     m.def("run", &captureRun, py::call_guard<py::gil_scoped_release>());
     m.def("get", &captureGet);
+    m.def("getInferenceResult", &captureGetferenceResult, py::return_value_policy::reference);
 }

@@ -22,8 +22,9 @@ if __name__ == '__main__':
 
         lastTimeStamp = timeStamp
         timeStamp = time.time()
-        print(1 / (timeStamp - lastTimeStamp))
-
+        # print(1 / (timeStamp - lastTimeStamp))
+        result = Capture.getInferenceResult()
+        print(result)
         cv2.imshow('frame', frame)
         key = cv2.waitKey(1)
         if key == ord('q'):

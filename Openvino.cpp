@@ -262,7 +262,7 @@ static void draw_objects(const cv::Mat &bgr, const std::vector<Object> &objects)
     /* cv::waitKey(0); */
 }
 
-void Capture::OpenvinoInit(std::string input_model, std::string device_name) {
+void Capture::initNetwork(std::string input_model_path, std::string device_name) {
     // --------------------------- Step 1. Initialize inference engine core
     // -------------------------------------
     Core ie;
@@ -270,7 +270,7 @@ void Capture::OpenvinoInit(std::string input_model, std::string device_name) {
     // Step 2. Read a model in OpenVINO Intermediate Representation (.xml and
     // .bin files) or ONNX (.onnx file) format
 
-    network = ie.ReadNetwork(input_model);
+    network = ie.ReadNetwork(input_model_path);
 
     if (network.getOutputsInfo().size() != 1)
         throw std::logic_error("Sample supports topologies with 1 output only");
@@ -303,13 +303,13 @@ void Capture::OpenvinoInit(std::string input_model, std::string device_name) {
     infer_request = executable_network.CreateInferRequest();
 }
 
-void Capture::OpenvinoInference() {
+void Capture::beginInference() {
     cv::Mat image;
 
     while (true) {
         do {
             std::unique_lock<std::mutex> lock(frame_mutex);
-            cv_frameReceived.wait(lock, [=]() { return newFrameReceived; });
+            frameReceived.wait(lock, [=]() { return newFrameReceived; });
             image = frame;
             // The unique_lock decomposed here, release the frame_mutex
         } while (false);
@@ -341,7 +341,12 @@ void Capture::OpenvinoInference() {
         int img_h = image.rows;
         float scale = std::min(INPUT_W / (image.cols * 1.0), INPUT_H / (image.rows * 1.0));
 
-        decode_outputs(net_pred, objects, scale, img_w, img_h);
+        resultObjects.clear();
+        decode_outputs(net_pred, resultObjects, scale, img_w, img_h);
     }
+}
+
+std::vector<Object> Capture::getInferenceResult() {
+    return resultObjects;
 }
 

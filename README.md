@@ -36,8 +36,14 @@ if __name__ == '__main__':
             time.sleep(0.005)
             continue
 
+        inference_result = Capture.getInferenceResult()
+        print(inference_result)
         cv2.imshow('frame', frame)
         key = cv2.waitKey(1)
         if key == ord('q'):
             break
+```
+* Inference results will be returned in format like
+```python
+[label1, x1, y1, w1, h1, prob1, label2, x2, y2, w2, h2, prob2, ...]
 ```
